@@ -121,7 +121,7 @@ app.get('/', (req, res) => {
 // Endpoint principal para agregar películas/series
 app.post('/add-movie', async (req, res) => {
     try {
-        const { title } = req.body;
+        const { title, status } = req.body; // Agregar status opcional
         
         if (!title) {
             return res.status(400).json({ 
@@ -130,10 +130,16 @@ app.post('/add-movie', async (req, res) => {
             });
         }
 
+        // Validar status si se proporciona
+        const validStatuses = ['Unseen', 'Watching', 'Seen'];
+        const movieStatus = status && validStatuses.includes(status) ? status : 'Unseen';
+
         console.log(`Buscando: ${title}`);
+        if (status) console.log(`Status solicitado: ${status}`);
         
         // Buscar información en TMDB
         const movieData = await searchMovieData(title);
+        movieData.status = movieStatus; // Agregar status a los datos
         console.log('Datos encontrados:', movieData.title);
         
         // Crear entrada en Notion
@@ -142,12 +148,13 @@ app.post('/add-movie', async (req, res) => {
         
         res.json({ 
             success: true, 
-            message: `"${movieData.title}" agregada exitosamente a la base de datos`,
+            message: `"${movieData.title}" agregada exitosamente a la base de datos con status: ${movieStatus}`,
             data: {
                 title: movieData.title,
                 type: movieData.type,
                 releaseDate: movieData.releaseDate,
-                rating: movieData.rating
+                rating: movieData.rating,
+                status: movieStatus
             },
             notion_url: result.url 
         });
@@ -214,7 +221,7 @@ async function createNotionPage(data) {
                 rich_text: [{ text: { content: data.summary } }]
             },
             'Status': {
-                select: { name: 'Unseen' } // Default status - solo "Seen" o "Unseen"
+                status: { name: data.status || 'Unseen' } // Tipo status con default "Unseen"
             },
             'Rating': {
                 select: { name: `⭐${data.rating}` } // "⭐1", "⭐2", "⭐3", "⭐4", "⭐5"

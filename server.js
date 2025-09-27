@@ -21,7 +21,48 @@ const notion = new Client({
 const DATABASE_ID = process.env.DATABASE_ID;
 const TMDB_API_KEY = process.env.TMDB_API_KEY;
 
-// Mapeo de géneros TMDB a tus opciones exactas de Notion
+// Mapeo de nombres cortos a personas completas
+const PERSON_MAP = {
+    'samu': 'Samuel Villalobos',
+    'adri': 'Adriana Diaz',
+    'samuel': 'Samuel Villalobos',
+    'adriana': 'Adriana Diaz'
+};
+
+// Función para detectar persona en el texto
+function detectPerson(title) {
+    const lowerTitle = title.toLowerCase();
+    
+    // Buscar patrones como "por samu", "by adri", etc.
+    const patterns = [
+        /\s+por\s+(\w+)$/i,  // "Inception por samu"
+        /\s+by\s+(\w+)$/i,   // "Inception by adri"  
+        /\s+de\s+(\w+)$/i,   // "Inception de samu"
+        /\s+-\s+(\w+)$/i     // "Inception - adri"
+    ];
+    
+    for (const pattern of patterns) {
+        const match = lowerTitle.match(pattern);
+        if (match) {
+            const personKey = match[1].toLowerCase();
+            const cleanTitle = title.replace(pattern, '').trim();
+            const personName = PERSON_MAP[personKey];
+            
+            if (personName) {
+                return {
+                    cleanTitle: cleanTitle,
+                    person: personName
+                };
+            }
+        }
+    }
+    
+    // Si no se encuentra patrón, retornar título original sin persona
+    return {
+        cleanTitle: title,
+        person: null
+    };
+}
 const genreMap = {
     28: 'Action', 12: 'Action', 16: 'Comedy', 35: 'Comedy',
     80: 'Crime', 99: 'Drama', 18: 'Drama', 10751: 'Comedy',
@@ -121,7 +162,7 @@ app.get('/', (req, res) => {
 // Endpoint principal para agregar películas/series
 app.post('/add-movie', async (req, res) => {
     try {
-        const { title, status } = req.body; // Agregar status opcional
+        const { title, status } = req.body;
         
         if (!title) {
             return res.status(400).json({ 
@@ -130,31 +171,41 @@ app.post('/add-movie', async (req, res) => {
             });
         }
 
+        // Detectar persona y limpiar título
+        const { cleanTitle, person } = detectPerson(title);
+
         // Validar status si se proporciona
         const validStatuses = ['Unseen', 'Watching', 'Seen'];
         const movieStatus = status && validStatuses.includes(status) ? status : 'Unseen';
 
-        console.log(`Buscando: ${title}`);
+        console.log(`Buscando: ${cleanTitle}`);
+        if (person) console.log(`Agregado por: ${person}`);
         if (status) console.log(`Status solicitado: ${status}`);
         
-        // Buscar información en TMDB
-        const movieData = await searchMovieData(title);
-        movieData.status = movieStatus; // Agregar status a los datos
+        // Buscar información en TMDB con el título limpio
+        const movieData = await searchMovieData(cleanTitle);
+        movieData.status = movieStatus;
+        movieData.person = person; // Agregar persona a los datos
         console.log('Datos encontrados:', movieData.title);
         
         // Crear entrada en Notion
         const result = await createNotionPage(movieData);
         console.log('Página creada en Notion');
         
+        const responseMessage = person 
+            ? `"${movieData.title}" agregada exitosamente por ${person} con status: ${movieStatus}`
+            : `"${movieData.title}" agregada exitosamente a la base de datos con status: ${movieStatus}`;
+        
         res.json({ 
             success: true, 
-            message: `"${movieData.title}" agregada exitosamente a la base de datos con status: ${movieStatus}`,
+            message: responseMessage,
             data: {
                 title: movieData.title,
                 type: movieData.type,
                 releaseDate: movieData.releaseDate,
                 rating: movieData.rating,
-                status: movieStatus
+                status: movieStatus,
+                addedBy: person
             },
             notion_url: result.url 
         });
@@ -234,6 +285,13 @@ async function createNotionPage(data) {
             }
         };
 
+        // Agregar persona solo si existe
+        if (data.person) {
+            properties['Persona'] = {
+                rich_text: [{ text: { content: data.person } }]
+            };
+        }
+
         // Agregar fecha solo si existe
         if (data.releaseDate) {
             properties['Release date'] = {
@@ -278,13 +336,13 @@ async function addPageIcon(pageId, type) {
         let icon;
         
         if (type === 'Movie') {
-            // Ícono de cámara de película en verde
+            // Ícono para películas
             icon = {
                 type: "emoji",
                 emoji: "🎬"
             };
         } else {
-            // Ícono de teatro/TV para series en azul  
+            // Ícono para series  
             icon = {
                 type: "emoji", 
                 emoji: "📺"

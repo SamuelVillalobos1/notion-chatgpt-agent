@@ -21,12 +21,12 @@ const notion = new Client({
 const DATABASE_ID = process.env.DATABASE_ID;
 const TMDB_API_KEY = process.env.TMDB_API_KEY;
 
-// Mapeo de nombres cortos a personas completas
+// Mapeo de nombres cortos a emails de personas
 const PERSON_MAP = {
-    'samu': 'Samuel Villalobos',
-    'adri': 'Adriana Diaz',
-    'samuel': 'Samuel Villalobos',
-    'adriana': 'Adriana Diaz'
+    'samu': 'svillalobos1221@gmail.com',
+    'adri': 'adrianadiazv3003@gmail.com',
+    'samuel': 'svillalobos1221@gmail.com',
+    'adriana': 'adrianadiazv3003@gmail.com'
 };
 
 // Función para detectar persona en el texto
@@ -46,12 +46,13 @@ function detectPerson(title) {
         if (match) {
             const personKey = match[1].toLowerCase();
             const cleanTitle = title.replace(pattern, '').trim();
-            const personName = PERSON_MAP[personKey];
+            const personEmail = PERSON_MAP[personKey];
             
-            if (personName) {
+            if (personEmail) {
                 return {
                     cleanTitle: cleanTitle,
-                    person: personName
+                    personEmail: personEmail,
+                    personName: personKey === 'samu' || personKey === 'samuel' ? 'Samuel Villalobos' : 'Adriana Diaz'
                 };
             }
         }
@@ -60,9 +61,12 @@ function detectPerson(title) {
     // Si no se encuentra patrón, retornar título original sin persona
     return {
         cleanTitle: title,
-        person: null
+        personEmail: null,
+        personName: null
     };
 }
+
+// Mapeo de géneros TMDB a tus opciones exactas de Notion
 const genreMap = {
     28: 'Action', 12: 'Action', 16: 'Comedy', 35: 'Comedy',
     80: 'Crime', 99: 'Drama', 18: 'Drama', 10751: 'Comedy',
@@ -150,6 +154,12 @@ function convertRating(tmdbRating) {
     return Math.max(1, Math.min(5, convertedRating));
 }
 
+// Función para generar estrellas visuales
+function generateStarRating(rating) {
+    const stars = '⭐'.repeat(rating);
+    return stars || '⭐⭐⭐'; // Default 3 estrellas si algo sale mal
+}
+
 // Ruta principal de prueba
 app.get('/', (req, res) => {
     res.json({ 
@@ -172,28 +182,29 @@ app.post('/add-movie', async (req, res) => {
         }
 
         // Detectar persona y limpiar título
-        const { cleanTitle, person } = detectPerson(title);
+        const { cleanTitle, personEmail, personName } = detectPerson(title);
 
         // Validar status si se proporciona
         const validStatuses = ['Unseen', 'Watching', 'Seen'];
         const movieStatus = status && validStatuses.includes(status) ? status : 'Unseen';
 
         console.log(`Buscando: ${cleanTitle}`);
-        if (person) console.log(`Agregado por: ${person}`);
+        if (personName) console.log(`Agregado por: ${personName} (${personEmail})`);
         if (status) console.log(`Status solicitado: ${status}`);
         
         // Buscar información en TMDB con el título limpio
         const movieData = await searchMovieData(cleanTitle);
         movieData.status = movieStatus;
-        movieData.person = person; // Agregar persona a los datos
+        movieData.personEmail = personEmail; // Agregar email para Notion Person field
+        movieData.personName = personName; // Agregar nombre para mostrar
         console.log('Datos encontrados:', movieData.title);
         
         // Crear entrada en Notion
         const result = await createNotionPage(movieData);
         console.log('Página creada en Notion');
         
-        const responseMessage = person 
-            ? `"${movieData.title}" agregada exitosamente por ${person} con status: ${movieStatus}`
+        const responseMessage = personName 
+            ? `"${movieData.title}" agregada exitosamente por ${personName} con status: ${movieStatus}`
             : `"${movieData.title}" agregada exitosamente a la base de datos con status: ${movieStatus}`;
         
         res.json({ 
@@ -205,7 +216,7 @@ app.post('/add-movie', async (req, res) => {
                 releaseDate: movieData.releaseDate,
                 rating: movieData.rating,
                 status: movieStatus,
-                addedBy: person
+                addedBy: personName
             },
             notion_url: result.url 
         });
@@ -254,12 +265,6 @@ async function searchMovieData(title) {
     }
 }
 
-// Función para generar estrellas visuales
-function generateStarRating(rating) {
-    const stars = '⭐'.repeat(rating);
-    return stars || '⭐⭐⭐'; // Default 3 estrellas si algo sale mal
-}
-
 // Función para crear página en Notion
 async function createNotionPage(data) {
     try {
@@ -286,9 +291,14 @@ async function createNotionPage(data) {
         };
 
         // Agregar persona solo si existe
-        if (data.person) {
+        if (data.personEmail) {
+            // Para campo tipo "Person" en Notion usando email
             properties['Persona'] = {
-                rich_text: [{ text: { content: data.person } }]
+                people: [{ 
+                    object: "user", 
+                    type: "person",
+                    person: { email: data.personEmail }
+                }]
             };
         }
 
@@ -339,13 +349,13 @@ async function addPageIcon(pageId, type) {
             // Ícono para películas
             icon = {
                 type: "emoji",
-                emoji: "🎬"
+                emoji: "🎥"
             };
         } else {
             // Ícono para series  
             icon = {
                 type: "emoji", 
-                emoji: "📺"
+                emoji: "🎭"
             };
         }
 

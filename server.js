@@ -203,6 +203,12 @@ async function searchMovieData(title) {
     }
 }
 
+// Función para generar estrellas visuales
+function generateStarRating(rating) {
+    const stars = '⭐'.repeat(rating);
+    return stars || '⭐⭐⭐'; // Default 3 estrellas si algo sale mal
+}
+
 // Función para crear página en Notion
 async function createNotionPage(data) {
     try {
@@ -224,7 +230,7 @@ async function createNotionPage(data) {
                 status: { name: data.status || 'Unseen' } // Tipo status con default "Unseen"
             },
             'Rating': {
-                select: { name: `⭐${data.rating}` } // "⭐1", "⭐2", "⭐3", "⭐4", "⭐5"
+                select: { name: generateStarRating(data.rating) } // "⭐⭐⭐⭐" en vez de "⭐4"
             }
         };
 
@@ -250,13 +256,50 @@ async function createNotionPage(data) {
             };
         }
 
-        return await notion.pages.create({
+        // Crear la página en Notion
+        const result = await notion.pages.create({
             parent: { database_id: DATABASE_ID },
             properties: properties
         });
+
+        // Después de crear la página, agregar el ícono apropiado
+        await addPageIcon(result.id, data.type);
+
+        return result;
     } catch (error) {
         console.error('Detalles del error de Notion:', error.body || error.message);
         throw new Error(`Error al crear página en Notion: ${error.message}`);
+    }
+}
+
+// Función para agregar íconos a las páginas
+async function addPageIcon(pageId, type) {
+    try {
+        let icon;
+        
+        if (type === 'Movie') {
+            // Ícono de cámara de película en verde
+            icon = {
+                type: "emoji",
+                emoji: "🎬"
+            };
+        } else {
+            // Ícono de teatro/TV para series en azul  
+            icon = {
+                type: "emoji", 
+                emoji: "📺"
+            };
+        }
+
+        await notion.pages.update({
+            page_id: pageId,
+            icon: icon
+        });
+
+        console.log(`Ícono ${icon.emoji} agregado para ${type}`);
+    } catch (error) {
+        console.error('Error al agregar ícono:', error.message);
+        // No lanzamos error aquí para que no falle toda la operación
     }
 }
 

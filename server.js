@@ -21,7 +21,7 @@ const notion = new Client({
 const DATABASE_ID = process.env.DATABASE_ID;
 const TMDB_API_KEY = process.env.TMDB_API_KEY;
 
-// Mapeo de géneros TMDB a tus opciones de Notion
+// Mapeo de géneros TMDB a tus opciones exactas de Notion
 const genreMap = {
     28: 'Action', 12: 'Action', 16: 'Comedy', 35: 'Comedy',
     80: 'Crime', 99: 'Drama', 18: 'Drama', 10751: 'Comedy',
@@ -34,25 +34,35 @@ const genreMap = {
     10767: 'Comedy', 10768: 'Drama'
 };
 
+// Géneros válidos en tu Notion (exactamente como los tienes)
+const VALID_GENRES = [
+    'Drama', 'Science fiction', 'Dystopian', 'Romance', 
+    'Horror', 'Action', 'Thriller', 'Crime', 'Superhero', 'Comedy'
+];
+
 // Géneros adicionales basados en palabras clave
 function mapGenresByKeywords(overview, title) {
     const text = (overview + ' ' + title).toLowerCase();
     const genres = [];
     
     if (text.includes('superhero') || text.includes('marvel') || text.includes('dc comics') || 
-        text.includes('batman') || text.includes('superman') || text.includes('spider')) {
+        text.includes('batman') || text.includes('superman') || text.includes('spider') ||
+        text.includes('avengers') || text.includes('iron man') || text.includes('captain america')) {
         genres.push('Superhero');
     }
-    if (text.includes('dystopian') || text.includes('dystopia') || text.includes('apocalypse')) {
+    if (text.includes('dystopian') || text.includes('dystopia') || text.includes('apocalypse') ||
+        text.includes('totalitarian') || text.includes('oppressive society')) {
         genres.push('Dystopian');
     }
-    if (text.includes('future') || text.includes('space') || text.includes('alien')) {
+    if (text.includes('future') || text.includes('space') || text.includes('alien') ||
+        text.includes('technology') || text.includes('sci-fi')) {
         if (!genres.includes('Science fiction')) genres.push('Science fiction');
     }
-    if (text.includes('love') || text.includes('romantic')) {
+    if (text.includes('love') || text.includes('romantic') || text.includes('relationship')) {
         if (!genres.includes('Romance')) genres.push('Romance');
     }
-    if (text.includes('scary') || text.includes('haunted') || text.includes('demon')) {
+    if (text.includes('scary') || text.includes('haunted') || text.includes('demon') ||
+        text.includes('ghost') || text.includes('monster')) {
         if (!genres.includes('Horror')) genres.push('Horror');
     }
     
@@ -76,7 +86,10 @@ function getMappedGenres(genreIds, overview, title) {
         }
     });
     
-    // Si no se encontraron géneros, usar Drama como default
+    // Filtrar solo géneros válidos en tu Notion
+    genres = genres.filter(genre => VALID_GENRES.includes(genre));
+    
+    // Si no se encontraron géneros válidos, usar Drama como default
     if (genres.length === 0) {
         genres = ['Drama'];
     }
@@ -164,11 +177,16 @@ async function searchMovieData(title) {
         const overview = item.overview || 'Sin resumen disponible';
         const mediaType = item.media_type === 'movie' ? 'Movie' : 'Serie';
         
+        // Obtener géneros como array para multi_select
+        const genreString = getMappedGenres(item.genre_ids, overview, movieTitle);
+        const genreArray = genreString.split(', ').filter(genre => genre.trim() !== '');
+        
         return {
             title: movieTitle,
             releaseDate: item.release_date || item.first_air_date,
             type: mediaType,
-            genre: getMappedGenres(item.genre_ids, overview, movieTitle),
+            genre: genreString, // String para mostrar
+            genreArray: genreArray, // Array para Notion multi_select
             summary: overview,
             cover: item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : null,
             rating: convertRating(item.vote_average)
@@ -182,23 +200,24 @@ async function searchMovieData(title) {
 async function createNotionPage(data) {
     try {
         const properties = {
-            'Exp': {
+            // Title de la página (el nombre de la película/serie)
+            'title': {
                 title: [{ text: { content: data.title } }]
             },
             'Type': {
                 select: { name: data.type } // "Movie" o "Serie"
             },
             'Genre': {
-                rich_text: [{ text: { content: data.genre } }]
+                multi_select: data.genreArray.map(genre => ({ name: genre.trim() }))
             },
             'Summary': {
                 rich_text: [{ text: { content: data.summary } }]
             },
             'Status': {
-                select: { name: 'Unseen' } // Default status
+                select: { name: 'Unseen' } // Default status - solo "Seen" o "Unseen"
             },
             'Rating': {
-                number: data.rating // Ahora será 1-5 en lugar de 0-10
+                select: { name: `⭐${data.rating}` } // "⭐1", "⭐2", "⭐3", "⭐4", "⭐5"
             }
         };
 
@@ -209,7 +228,7 @@ async function createNotionPage(data) {
             };
         }
 
-        // Agregar cover solo si existe - usando Files & media type
+        // Agregar cover solo si existe
         if (data.cover) {
             properties['Cover'] = {
                 files: [
